@@ -35,21 +35,13 @@ def clean_columns(df):
     )
     return df
 
-def flatten_columns(df):
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [
-            " ".join([str(x) for x in col if "unnamed" not in str(x).lower()]).strip()
-            for col in df.columns
-        ]
-    return df
-
 def fuzzy_vehicle(raw, master_list):
     if pd.isna(raw):
         return None, 0
     raw = str(raw).strip()
     if raw in master_list:
         return raw, 100
-    return raw, 50  # needs manual review
+    return raw, 50
 
 # ------------------ FILE UPLOAD ------------------
 
@@ -68,55 +60,55 @@ if analyze:
         st.error("⚠️ Please upload all required files.")
         st.stop()
 
-    # -------- AUTO-DETECT HEADER ROW --------
-    raw_indent = pd.read_excel(indent_file, header=None)
+    # -------- FIND HEADER ROW (BULLETPROOF) --------
+    raw = pd.read_excel(indent_file, header=None)
 
     header_row = None
-    for i in range(20):
-        row_text = " ".join(raw_indent.iloc[i].astype(str).tolist()).lower()
-        if "base link" in row_text and "requested" in row_text:
+    for i in range(len(raw)):
+        row_text = " ".join(raw.iloc[i].astype(str)).lower()
+        if "base link" in row_text:
             header_row = i
             break
 
     if header_row is None:
-        st.error("❌ Could not auto-detect header row in Indent file")
+        st.error("❌ Header row with 'Base Link doc number' not found")
         st.stop()
 
+    # -------- READ WITH CORRECT HEADER --------
     indent_df = pd.read_excel(indent_file, header=header_row)
 
-    # -------- FIX HEADERS --------
-    indent_df = flatten_columns(indent_df)
+    # -------- CLEAN COLUMN NAMES --------
     indent_df = clean_columns(indent_df)
 
-    st.write("✅ Final Indent Columns Detected:", indent_df.columns.tolist())
+    st.write("✅ FINAL INDENT COLUMNS:", indent_df.columns.tolist())
 
     # -------- REQUIRED COLUMNS --------
-    required_columns = {
-        "base link doc number": "Indent Reference",
-        "requested date": "Indent Date",
-        "vehicle no name": "Vehicle"
-    }
+    required = [
+        "base link doc number",
+        "vehicle no name",
+        "created date"
+    ]
 
-    for col in required_columns:
+    for col in required:
         if col not in indent_df.columns:
             st.error(f"❌ Required column missing: {col}")
             st.stop()
 
     # -------- PROCESS INDENT DATA --------
     indent_df["indent no"] = indent_df["base link doc number"].apply(extract_indent)
-    indent_df["indent date"] = pd.to_datetime(indent_df["requested date"], errors="coerce")
+    indent_df["indent date"] = pd.to_datetime(indent_df["created date"], errors="coerce")
     indent_df["vehicle raw"] = indent_df["vehicle no name"]
 
     indent_df = indent_df.dropna(subset=["indent no"])
 
-    # -------- LOAD GPS DATA --------
+    # -------- GPS DATA --------
     gps_df = pd.read_excel(gps_file)
     gps_df.columns = gps_df.columns.str.strip()
 
     gps_summary = gps_df.groupby("Vehicle Number", as_index=False)["Distance"].sum()
     gps_summary.columns = ["vehicle", "total km"]
 
-    # -------- LOAD VEHICLE MASTER --------
+    # -------- VEHICLE MASTER --------
     vehicle_master = pd.read_csv(vehicle_master_file)
     vehicle_list = vehicle_master.iloc[:, 0].astype(str).tolist()
 
@@ -130,11 +122,9 @@ if analyze:
     for _, row in indent_df.iterrows():
         indent_no = row["indent no"]
         vehicle_raw = row["vehicle raw"]
-        indent_date = row["indent date"]
 
         vehicle_final, score = fuzzy_vehicle(vehicle_raw, vehicle_list)
 
-        # Duplicate indent fraud
         if indent_count[indent_no] > 1:
             fraud.append({
                 "Indent Number": indent_no,
@@ -142,17 +132,16 @@ if analyze:
                 "Fraud Reason": "Duplicate indent usage"
             })
 
-        # Vehicle mismatch exception
         if score < 90:
             exceptions.append({
                 "Indent Number": indent_no,
                 "Vehicle Entered": vehicle_raw,
-                "Issue": "Vehicle number mismatch / needs review"
+                "Issue": "Vehicle number mismatch"
             })
 
         recon.append({
             "Indent Number": indent_no,
-            "Indent Date": indent_date,
+            "Indent Date": row["indent date"],
             "Vehicle (Final)": vehicle_final
         })
 
@@ -169,7 +158,7 @@ if analyze:
         how="left"
     ).rename(columns={"size": "fuel entries"}).drop(columns=["vehicle raw"])
 
-    # -------- EXPORT EXCEL --------
+    # -------- EXPORT --------
     output_file = "Fuel_Audit_Report.xlsx"
     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
         fraud_df.to_excel(writer, sheet_name="FRAUD_REPORT", index=False)
@@ -177,7 +166,6 @@ if analyze:
         recon_df.to_excel(writer, sheet_name="INDENT_RECON", index=False)
         mileage_df.to_excel(writer, sheet_name="VEHICLE_MILEAGE", index=False)
 
-    # -------- UI OUTPUT --------
     st.success("✅ Analysis completed successfully")
 
     col1, col2 = st.columns(2)
