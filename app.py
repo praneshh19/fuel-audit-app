@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import re
-from rapidfuzz import process
 
 st.set_page_config(page_title="Fuel Audit System", layout="wide")
 st.title("⛽ Fuel Audit & Fraud Detection System")
@@ -26,8 +25,10 @@ def extract_indent(base_doc):
 def fuzzy_vehicle(raw, master_list):
     if pd.isna(raw):
         return None, 0
-    match, score, _ = process.extractOne(str(raw), master_list)
-    return match, score
+    raw = str(raw).strip()
+    if raw in master_list:
+        return raw, 100
+    return raw, 0
 
 # ------------------ File Upload ------------------
 
