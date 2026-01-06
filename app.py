@@ -66,19 +66,9 @@ if analyze:
     vehicle_list = vehicle_master.iloc[:, 0].astype(str).tolist()
 
     # Process indent data
-    base_doc_col = find_column(indent_df, "base link")
-    
-    if not base_doc_col:    
-        st.error("❌ Could not find Base Link Doc column in Indent Register")
-        st.stop()
-        indent_df["Indent No"] = indent_df[base_doc_col].apply(extract_indent)
-        indent_date_col = find_column(indent_df, "fuel")
-    
-    if not indent_date_col:
-        st.error("❌ Could not find Fuel Request Date column")
-        st.stop()
-        indent_df["Indent Date"] = pd.to_datetime(indent_df[indent_date_col], errors="coerce")
-        indent_df = indent_df.dropna(subset=["Indent No"])
+    base_doc_col = "base link doc number"
+    indent_df["indent no"] = indent_df[base_doc_col].apply(extract_indent)
+    indent_df["indent date"] = pd.to_datetime(indent_df[indent_date_col], errors="coerce")
 
     # GPS summary
     gps_summary = gps_df.groupby("Vehicle Number", as_index=False)["Distance"].sum()
@@ -92,7 +82,7 @@ if analyze:
 
     for _, row in indent_df.iterrows():
         indent_no = row["Indent No"]
-        vehicle_col = find_column(indent_df, "vehicle")
+        vehicle_col = "vehicle no name"
         vehicle_raw = row[vehicle_col]
         indent_date = row["Indent Date"]
 
