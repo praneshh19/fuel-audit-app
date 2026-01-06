@@ -61,22 +61,17 @@ if analyze:
 
     # Process indent data
     base_doc_col = find_column(indent_df, "base link")
-
-if not base_doc_col:
+    
+    if not base_doc_col:    
     st.error("❌ Could not find Base Link Doc column in Indent Register")
     st.stop()
-
-indent_df["Indent No"] = indent_df[base_doc_col].apply(extract_indent)
-
+    indent_df["Indent No"] = indent_df[base_doc_col].apply(extract_indent)
     indent_date_col = find_column(indent_df, "fuel")
-
-if not indent_date_col:
+    
+    if not indent_date_col:
     st.error("❌ Could not find Fuel Request Date column")
     st.stop()
-
-indent_df["Indent Date"] = pd.to_datetime(indent_df[indent_date_col], errors="coerce")
-
-
+    indent_df["Indent Date"] = pd.to_datetime(indent_df[indent_date_col], errors="coerce")
     indent_df = indent_df.dropna(subset=["Indent No"])
 
     # GPS summary
