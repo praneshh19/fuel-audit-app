@@ -15,7 +15,12 @@ You will receive a **multi-sheet Excel report** with:
 """)
 
 # ------------------ Helper Functions ------------------
-
+def find_column(df, keyword):
+    for col in df.columns:
+        if keyword.lower() in col.lower():
+            return col
+    return None
+    
 def extract_indent(base_doc):
     if pd.isna(base_doc):
         return None
@@ -55,8 +60,22 @@ if analyze:
     vehicle_list = vehicle_master.iloc[:, 0].astype(str).tolist()
 
     # Process indent data
-    indent_df["Indent No"] = indent_df["Base Link Doc Number"].apply(extract_indent)
-    indent_df["Indent Date"] = pd.to_datetime(indent_df["Fuel Request Date"], errors="coerce")
+    base_doc_col = find_column(indent_df, "base link")
+
+if not base_doc_col:
+    st.error("❌ Could not find Base Link Doc column in Indent Register")
+    st.stop()
+
+indent_df["Indent No"] = indent_df[base_doc_col].apply(extract_indent)
+
+    indent_date_col = find_column(indent_df, "fuel")
+
+if not indent_date_col:
+    st.error("❌ Could not find Fuel Request Date column")
+    st.stop()
+
+indent_df["Indent Date"] = pd.to_datetime(indent_df[indent_date_col], errors="coerce")
+
 
     indent_df = indent_df.dropna(subset=["Indent No"])
 
@@ -72,7 +91,8 @@ if analyze:
 
     for _, row in indent_df.iterrows():
         indent_no = row["Indent No"]
-        vehicle_raw = row["Vehicle Number"]
+        vehicle_col = find_column(indent_df, "vehicle")
+        vehicle_raw = row[vehicle_col]
         indent_date = row["Indent Date"]
 
         vehicle_final, score = fuzzy_vehicle(vehicle_raw, vehicle_list)
