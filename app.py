@@ -15,9 +15,15 @@ You will receive a **multi-sheet Excel report** with:
 """)
 
 # ------------------ Helper Functions ------------------
+def normalize(text):
+    if not isinstance(text, str):
+        return ""
+    return " ".join(text.lower().replace("\n", " ").split())
+
 def find_column(df, keyword):
+    keyword = normalize(keyword)
     for col in df.columns:
-        if keyword.lower() in col.lower():
+        if keyword in normalize(col):
             return col
     return None
     
