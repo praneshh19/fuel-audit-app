@@ -59,7 +59,7 @@ if analyze:
         st.stop()
 
     # Load data
-    indent_df = pd.read_excel(indent_file)
+    indent_df = pd.read_excel(indent_file, header=5)
     gps_df = pd.read_excel(gps_file)
     vehicle_master = pd.read_csv(vehicle_master_file)
 
