@@ -5,15 +5,15 @@ import base64
 import re
 
 
-# ============================
-# 🔑 ADD YOUR GOOGLE API KEY HERE
-# ============================
-VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"     # <--- put ONLY here
+# ============================================
+# 🔑 ADD YOUR GOOGLE VISION API KEY HERE
+# ============================================
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <-- only here
 
 
-# ============================
-# OCR IMAGE FUNCTION
-# ============================
+# ============================================
+# GOOGLE OCR FUNCTION (MULTI-IMAGE SAFE)
+# ============================================
 def ocr_image(image_bytes):
     img_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -29,44 +29,57 @@ def ocr_image(image_bytes):
     }
 
     response = requests.post(url, json=payload)
-    response.raise_for_status()
 
-    data = response.json()
-    return data["responses"][0].get("fullTextAnnotation", {}).get("text", "")
+    # --------- IMPORTANT ----------
+    # do NOT crash the app
+    # Show the real Google error message to user
+    # ------------------------------------------
+    try:
+        data = response.json()
+    except Exception:
+        st.error("❌ Google Vision returned non-JSON response")
+        st.code(response.text)
+        return ""
+
+    if "error" in data:
+        st.error("❌ Google Vision API Error")
+        st.code(data["error"])
+        return ""
+
+    if (
+        "responses" not in data
+        or not data["responses"]
+        or "fullTextAnnotation" not in data["responses"][0]
+    ):
+        return ""
+
+    return data["responses"][0]["fullTextAnnotation"]["text"]
 
 
-# ============================
-# Extract indent numbers
-# ============================
+# ============================================
+# SUPPORT FUNCTIONS
+# ============================================
 def extract_indent(text):
     m = re.search(r"\b(\d{3,6})\b", text)
     return m.group(1) if m else None
 
 
-# ============================
-# STREAMLIT APP UI
-# ============================
+# ============================================
+# STREAMLIT UI
+# ============================================
 st.set_page_config(page_title="Fuel Audit – Multi Image OCR", layout="wide")
-st.title("⛽ Fuel Audit & Fraud Detection – GOOGLE OCR (MULTIPLE IMAGES)")
+st.title("⛽ Fuel Audit & Fraud Detection — Google OCR (Multiple Images)")
+
+st.write("Upload Excel files and fuel bill **images** (JPG/PNG). PDF not required.")
 
 
-st.markdown("""
-Upload the following:
-
-1️⃣ Indent Register (Excel)  
-2️⃣ GPS Distance Report (Excel)  
-3️⃣ Vehicle Master (Excel/CSV)  
-4️⃣ **Multiple fuel bill IMAGES** (JPG/PNG)  
-""")
-
-
-# ========== FILE UPLOADS ==========
+# ========== INPUT FILE UPLOADS ==========
 indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
 gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
 vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
 
 bill_images = st.file_uploader(
-    "Upload Multiple Fuel Bill Images",
+    "Upload Multiple Fuel Bill IMAGES",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True
 )
@@ -74,20 +87,20 @@ bill_images = st.file_uploader(
 run = st.button("🚀 Run Audit")
 
 
-# ============================
+# ============================================
 # MAIN PROCESS
-# ============================
+# ============================================
 if run:
 
     if not all([indent_file, gps_file, vehicle_master_file, bill_images]):
         st.error("⚠ Please upload all required files.")
         st.stop()
 
-    # ---------- Load Indent Register ----------
+    # ---------- STEP 1: Indent Register ----------
     indent_df = pd.read_excel(indent_file, header=5)
     indent_df.columns = [str(c).strip() for c in indent_df.columns]
 
-    st.subheader("Step 1 – Map Indent Register Columns")
+    st.subheader("Step 1 — Map Indent Register Columns")
 
     indent_col = st.selectbox("Select 'Base Link Doc Number' column", indent_df.columns)
     vehicle_col = st.selectbox("Select 'Vehicle Number' column", indent_df.columns)
@@ -96,11 +109,11 @@ if run:
     indent_df["vehicle"] = indent_df[vehicle_col].astype(str).str.replace(" ", "")
 
 
-    # ---------- Load GPS Data ----------
+    # ---------- STEP 2: GPS ----------
     gps_df = pd.read_excel(gps_file)
     gps_df.columns = [str(c).strip() for c in gps_df.columns]
 
-    st.subheader("Step 2 – Map GPS Columns")
+    st.subheader("Step 2 — Map GPS Columns")
 
     gps_vehicle_col = st.selectbox("Select GPS vehicle column", gps_df.columns)
     gps_distance_col = st.selectbox("Select GPS distance column", gps_df.columns)
@@ -111,19 +124,16 @@ if run:
     gps_summary = gps_df.groupby("vehicle", as_index=False)["km"].sum()
 
 
-    # ---------- OCR MULTIPLE IMAGES ----------
-    st.subheader("Step 3 – OCR on uploaded fuel bill images")
-
-    all_text = ""
-    progress = st.progress(0)
+    # ---------- STEP 3: OCR MULTIPLE IMAGES ----------
+    st.subheader("Step 3 — Running OCR on fuel bill images")
 
     bill_rows = []
+    progress = st.progress(0)
 
     for i, img in enumerate(bill_images):
-        bytes_data = img.read()
+        img_bytes = img.read()
 
-        text = ocr_image(bytes_data)
-        all_text += "\n" + text
+        text = ocr_image(img_bytes)
 
         for line in text.splitlines():
             indent = extract_indent(line)
@@ -136,8 +146,8 @@ if run:
     bill_df = pd.DataFrame(bill_rows).drop_duplicates(subset=["indent_no"])
 
 
-    # ---------- Reconciliation ----------
-    st.subheader("Step 4 – Bill vs Indent Reconciliation & Fraud Detection")
+    # ---------- STEP 4: RECON ----------
+    st.subheader("Step 4 — Reconciliation & Fraud Detection")
 
     merged = pd.merge(
         bill_df,
@@ -154,7 +164,7 @@ if run:
     })
 
 
-    # ---------- Owner Exceptions ----------
+    # ---------- Owner Exception ----------
     owner_vehicles = [
         "TN66AR6000",
         "PY05P0005",
@@ -165,7 +175,7 @@ if run:
     merged.loc[merged["vehicle"].isin(owner_vehicles), "status"] = "Owner Exception 🟡"
 
 
-    # ---------- Final Excel ----------
+    # ---------- STEP 5: EXPORT ----------
     output_file = "Fuel_Audit_Multi_Image_GoogleOCR.xlsx"
 
     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
