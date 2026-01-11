@@ -3,19 +3,17 @@ import pandas as pd
 import requests
 import base64
 import re
-import io
-from pdf2image import convert_from_bytes
 
 
 # ============================================
 # 🔑 ADD YOUR GOOGLE VISION API KEY HERE
 # ============================================
-VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <- DO NOT SHARE PUBLICLY
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # do not share publicly
 
 
 
 # ============================================
-# OCR FOR IMAGE (JPG/PNG)
+# OCR FOR IMAGE
 # ============================================
 def ocr_image(image_bytes):
     img_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -40,26 +38,6 @@ def ocr_image(image_bytes):
 
 
 # ============================================
-# OCR FOR PDF  (convert pages -> images)
-# ============================================
-def ocr_pdf(pdf_bytes):
-    pages = convert_from_bytes(pdf_bytes, dpi=300)
-
-    full_text = ""
-
-    for page in pages:
-        buffer = io.BytesIO()
-        page.save(buffer, format="JPEG")
-        page_bytes = buffer.getvalue()
-
-        page_text = ocr_image(page_bytes)
-        full_text += page_text + "\n"
-
-    return full_text
-
-
-
-# ============================================
 # INDENT NUMBER EXTRACTION
 # ============================================
 def extract_indent(text):
@@ -69,10 +47,10 @@ def extract_indent(text):
 
 
 # ============================================
-# STREAMLIT APP UI
+# STREAMLIT UI
 # ============================================
 st.set_page_config(page_title="Fuel Audit OCR System", layout="wide")
-st.title("⛽ Fuel Audit & Fraud Detection – FINAL VERSION (PDF + Image Supported)")
+st.title("⛽ Fuel Audit & Fraud Detection – IMAGE OCR VERSION")
 
 st.write("Upload files and select correct columns where prompted.")
 
@@ -85,10 +63,10 @@ indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
 gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
 vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
 
-# 🔥 NEW — accepts BOTH PDF & images
-bill_file = st.file_uploader(
-    "Fuel Bill (PDF or Image)",
-    type=["pdf", "jpg", "jpeg", "png"]
+# 🖼️ image only – no pdf2image required
+bill_image = st.file_uploader(
+    "Fuel Bill Image (JPG / JPEG / PNG)",
+    type=["jpg", "jpeg", "png"]
 )
 
 run = st.button("🚀 Run Audit")
@@ -100,7 +78,7 @@ run = st.button("🚀 Run Audit")
 # ============================================
 if run:
 
-    if not all([indent_file, gps_file, vehicle_master_file, bill_file]):
+    if not all([indent_file, gps_file, vehicle_master_file, bill_image]):
         st.error("⚠ Please upload all four files first.")
         st.stop()
 
@@ -147,17 +125,12 @@ if run:
 
 
     # ---------- OCR PROCESSING ----------
-    st.subheader("Step 3 – OCR on Fuel Bill")
-
-    file_bytes = bill_file.read()
-    file_type = bill_file.type.lower()
+    st.subheader("Step 3 – OCR on Fuel Bill Image")
 
     st.info("📑 Running OCR… please wait")
 
-    if "pdf" in file_type:
-        text_full = ocr_pdf(file_bytes)
-    else:
-        text_full = ocr_image(file_bytes)
+    image_bytes = bill_image.read()
+    text_full = ocr_image(image_bytes)
 
 
 
