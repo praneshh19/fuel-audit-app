@@ -18,7 +18,7 @@ VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # do not share publ
 def ocr_image(image_bytes):
     img_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    url = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_API_KEY}"
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs}"
 
     request_json = {
         "requests": [
