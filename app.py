@@ -3,43 +3,30 @@ import pandas as pd
 import requests
 import io
 import re
+import base64
 
 # ==========================
-#  CONFIGURATION – ADD KEY HERE
+#  ADD YOUR REGENERATED KEY HERE
 # ==========================
-VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <-- DO NOT SHARE PUBLICLY
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <-- do not share this publicly
+
 
 # ==========================
-#  STREAMLIT UI
+#  OCR FUNCTION FOR PDF
 # ==========================
-st.set_page_config(page_title="Fuel Audit – Full OCR System", layout="wide")
-st.title("⛽ Fuel Audit & Fraud Detection – Final Version")
-
-st.write("Upload Indent Register, GPS Report, Vehicle Master and Fuel Bill PDF")
-
-indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
-gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
-vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
-bill_pdf = st.file_uploader("Fuel Bill – Combined PDF", type=["pdf"])
-
-run = st.button("🚀 Run Full Analysis")
-
-# ==========================
-#  GOOGLE OCR FUNCTION
-# ==========================
-def ocr_pdf(file_bytes):
+def ocr_pdf(pdf_bytes):
     url = f"https://vision.googleapis.com/v1/files:annotate?key={VISION_API_KEY}"
+
+    encoded_content = base64.b64encode(pdf_bytes).decode("utf-8")
 
     request_json = {
         "requests": [
             {
                 "inputConfig": {
                     "mimeType": "application/pdf",
-                    "content": file_bytes.decode("latin1")
+                    "content": encoded_content
                 },
-                "features": [
-                    {"type": "DOCUMENT_TEXT_DETECTION"}
-                ]
+                "features": [{"type": "DOCUMENT_TEXT_DETECTION"}]
             }
         ]
     }
@@ -48,23 +35,41 @@ def ocr_pdf(file_bytes):
     response.raise_for_status()
     return response.json()
 
+
 # ==========================
-#  INDENT NUMBER EXTRACTOR
+#  INDENT NUMBER FROM TEXT
 # ==========================
 def extract_indent(text):
     m = re.search(r"\b(30\d{2,4}|31\d{2,4})\b", text)
     return m.group(0) if m else None
 
+
 # ==========================
-#  PROCESS
+#  STREAMLIT UI
+# ==========================
+st.set_page_config(page_title="Fuel Audit – OCR System", layout="wide")
+st.title("⛽ Fuel Audit & Fraud Detection – OCR Enabled")
+
+st.write("Upload all four files and click **Run Analysis**")
+
+indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
+gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
+vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
+bill_pdf = st.file_uploader("Fuel Bill – Combined PDF", type=["pdf"])
+
+run = st.button("🚀 Run Analysis")
+
+
+# ==========================
+#  MAIN PROCESSING
 # ==========================
 if run:
 
     if not all([indent_file, gps_file, vehicle_master_file, bill_pdf]):
-        st.error("Upload all 4 files before running.")
+        st.error("⚠ Please upload all 4 files first.")
         st.stop()
 
-    # ---------- Load core data ----------
+    # ------------ LOAD FILES ------------
     indent_df = pd.read_excel(indent_file, header=5)
     gps_df = pd.read_excel(gps_file)
 
@@ -73,51 +78,50 @@ if run:
     else:
         vehicle_df = pd.read_excel(vehicle_master_file)
 
-    # ---------- Normalize columns ----------
-    indent_df.columns = [c.lower().strip() for c in indent_df.columns]
-    gps_df.columns = [c.lower().strip() for c in gps_df.columns]
-    vehicle_df.columns = [c.lower().strip() for c in vehicle_df.columns]
+    # ------------ NORMALISE HEADERS ------------
+    indent_df.columns = [c.strip() for c in indent_df.columns]
+    gps_df.columns = [c.strip() for c in gps_df.columns]
+    vehicle_df.columns = [c.strip() for c in vehicle_df.columns]
 
-    # ---------- Mandatory mappings ----------
-    base_col = "base link doc  number"
-    veh_col = "vehicle no  name"
-    qty_col = "quantity"
+    # ------------ FIND IMPORTANT COLUMNS AUTOMATICALLY ------------
+    # Base Link Doc number (Indent ref)
+    base_col = [c for c in indent_df.columns if "base" in c.lower() and "doc" in c.lower()][0]
 
-    if base_col not in indent_df.columns:
-        st.error("Indent Register missing column: Base Link doc number")
-        st.stop()
+    # Vehicle number column
+    veh_col = [c for c in indent_df.columns if "vehicle" in c.lower()][0]
 
+    # ------------ CREATE CLEAN INDENT N0 ------------
     indent_df["indent_no"] = indent_df[base_col].astype(str).str.extract(r"(\d+)")
-    indent_df["vehicle"] = indent_df[veh_col]
+    indent_df["vehicle"] = indent_df[veh_col].astype(str).str.replace(" ", "")
 
-    # ---------- GPS summary ----------
-    gps_df.rename(columns={
-        "vehicle no.": "vehicle",
-        "distance travelled [km]": "km"
-    }, inplace=True)
+    # ------------ GPS SUMMARY ------------
+    km_col = [c for c in gps_df.columns if "distance" in c.lower()][0]
+    gps_vehicle_col = [c for c in gps_df.columns if "vehicle" in c.lower()][0]
+
+    gps_df["vehicle"] = gps_df[gps_vehicle_col].astype(str).str.replace(" ", "")
+    gps_df["km"] = pd.to_numeric(gps_df[km_col], errors="coerce")
 
     km_summary = gps_df.groupby("vehicle", as_index=False)["km"].sum()
 
-    # ---------- OCR ----------
-    st.info("📑 Running OCR on Fuel Bill PDF… this may take 10–20 seconds")
+    # ------------ OCR BILL PROCESSING ------------
+    st.info("📑 Running OCR on Fuel Bill PDF…")
 
     pdf_bytes = bill_pdf.read()
-    ocr_result = ocr_pdf(io.BytesIO(pdf_bytes).getvalue())
+    ocr_result = ocr_pdf(pdf_bytes)
 
-    pages_text = ""
+    full_text = ""
     for r in ocr_result.get("responses", []):
-        pages_text += r.get("fullTextAnnotation", {}).get("text", "") + "\n"
+        full_text += r.get("fullTextAnnotation", {}).get("text", "")
 
-    # ---------- Extract bills ----------
     rows = []
-    for line in pages_text.splitlines():
+    for line in full_text.splitlines():
         indent = extract_indent(line)
         if indent:
-            rows.append({"raw": line, "indent_no": indent})
+            rows.append({"text": line, "indent_no": indent})
 
     bill_df = pd.DataFrame(rows).drop_duplicates(subset=["indent_no"])
 
-    # ---------- Reconciliation ----------
+    # ------------ RECONCILIATION ------------
     merged = pd.merge(
         bill_df,
         indent_df,
@@ -126,14 +130,13 @@ if run:
         indicator=True
     )
 
-    # ---------- Flags ----------
     merged["status"] = merged["_merge"].map({
         "both": "Matched",
-        "left_only": "Bill without Indent ❌",
-        "right_only": "Indent without Bill ⚠"
+        "left_only": "Bill Without Indent ❌",
+        "right_only": "Indent Without Bill ⚠"
     })
 
-    # Owner vehicle exceptions
+    # Owner vehicle list
     owner_vehicles = [
         "TN66AR6000",
         "PY05P0005",
@@ -143,19 +146,20 @@ if run:
 
     merged.loc[merged["vehicle"].isin(owner_vehicles), "status"] = "Owner Exception 🟡"
 
-    # ---------- Output ----------
-    st.success("✅ Analysis complete. Download full Excel below.")
-
+    # ------------ SAVE REPORT ------------
     output_name = "Fuel_Audit_Final_Report.xlsx"
+
     with pd.ExcelWriter(output_name, engine="openpyxl") as writer:
         indent_df.to_excel(writer, sheet_name="Indent Register", index=False)
         bill_df.to_excel(writer, sheet_name="Bill OCR Extract", index=False)
         merged.to_excel(writer, sheet_name="Bill vs Indent Audit", index=False)
         km_summary.to_excel(writer, sheet_name="Vehicle Distance", index=False)
 
+    st.success("✅ Analysis complete")
+
     with open(output_name, "rb") as f:
         st.download_button(
-            "📥 Download Final Excel Report",
+            "📥 Download Excel Report",
             f,
             file_name=output_name
         )
