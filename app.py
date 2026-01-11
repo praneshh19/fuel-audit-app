@@ -8,7 +8,7 @@ import re
 # ============================
 # 🔑 ADD YOUR GOOGLE API KEY HERE
 # ============================
-VISION_API_KEY = "PASTE_YOUR_API_KEY_HERE"     # <--- put ONLY here
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"     # <--- put ONLY here
 
 
 # ============================
