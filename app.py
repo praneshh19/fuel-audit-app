@@ -3,29 +3,29 @@ import pandas as pd
 import requests
 import base64
 import re
+import io
+from pdf2image import convert_from_bytes
+
 
 # ============================================
 # 🔑 ADD YOUR GOOGLE VISION API KEY HERE
 # ============================================
-VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <-- DO NOT SHARE PUBLICLY
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <- DO NOT SHARE PUBLICLY
 
 
 
 # ============================================
-# OCR FUNCTION FOR PDF
+# OCR FOR IMAGE (JPG/PNG)
 # ============================================
-def ocr_pdf(pdf_bytes):
-    encoded_content = base64.b64encode(pdf_bytes).decode("utf-8")
+def ocr_image(image_bytes):
+    img_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    url = f"https://vision.googleapis.com/v1/files:annotate?key={VISION_API_KEY}"
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_API_KEY}"
 
     request_json = {
         "requests": [
             {
-                "inputConfig": {
-                    "mimeType": "application/pdf",
-                    "content": encoded_content
-                },
+                "image": {"content": img_b64},
                 "features": [{"type": "DOCUMENT_TEXT_DETECTION"}]
             }
         ]
@@ -33,12 +33,34 @@ def ocr_pdf(pdf_bytes):
 
     response = requests.post(url, json=request_json)
     response.raise_for_status()
-    return response.json()
+
+    result = response.json()
+    return result["responses"][0].get("fullTextAnnotation", {}).get("text", "")
 
 
 
 # ============================================
-# INDENT NUMBER EXTRACTION FROM TEXT
+# OCR FOR PDF  (convert pages -> images)
+# ============================================
+def ocr_pdf(pdf_bytes):
+    pages = convert_from_bytes(pdf_bytes, dpi=300)
+
+    full_text = ""
+
+    for page in pages:
+        buffer = io.BytesIO()
+        page.save(buffer, format="JPEG")
+        page_bytes = buffer.getvalue()
+
+        page_text = ocr_image(page_bytes)
+        full_text += page_text + "\n"
+
+    return full_text
+
+
+
+# ============================================
+# INDENT NUMBER EXTRACTION
 # ============================================
 def extract_indent(text):
     m = re.search(r"\b(\d{3,6})\b", text)
@@ -50,19 +72,24 @@ def extract_indent(text):
 # STREAMLIT APP UI
 # ============================================
 st.set_page_config(page_title="Fuel Audit OCR System", layout="wide")
-st.title("⛽ Fuel Audit & Fraud Detection – FINAL VERSION")
+st.title("⛽ Fuel Audit & Fraud Detection – FINAL VERSION (PDF + Image Supported)")
 
-st.write("Upload all files and then select correct column names where requested.")
+st.write("Upload files and select correct columns where prompted.")
 
 
 
 # ============================================
-# FILE UPLOAD SECTION
+# FILE UPLOADS
 # ============================================
 indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
 gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
 vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
-bill_pdf = st.file_uploader("Fuel Bill – Combined PDF", type=["pdf"])
+
+# 🔥 NEW — accepts BOTH PDF & images
+bill_file = st.file_uploader(
+    "Fuel Bill (PDF or Image)",
+    type=["pdf", "jpg", "jpeg", "png"]
+)
 
 run = st.button("🚀 Run Audit")
 
@@ -73,7 +100,7 @@ run = st.button("🚀 Run Audit")
 # ============================================
 if run:
 
-    if not all([indent_file, gps_file, vehicle_master_file, bill_pdf]):
+    if not all([indent_file, gps_file, vehicle_master_file, bill_file]):
         st.error("⚠ Please upload all four files first.")
         st.stop()
 
@@ -120,17 +147,21 @@ if run:
 
 
     # ---------- OCR PROCESSING ----------
-    st.subheader("Step 3 – OCR on Fuel Bill PDF")
+    st.subheader("Step 3 – OCR on Fuel Bill")
 
-    st.info("📑 Running OCR… please wait 10–20 seconds")
+    file_bytes = bill_file.read()
+    file_type = bill_file.type.lower()
 
-    pdf_bytes = bill_pdf.read()
-    ocr_result = ocr_pdf(pdf_bytes)
+    st.info("📑 Running OCR… please wait")
 
-    text_full = ""
-    for resp in ocr_result.get("responses", []):
-        text_full += resp.get("fullTextAnnotation", {}).get("text", "")
+    if "pdf" in file_type:
+        text_full = ocr_pdf(file_bytes)
+    else:
+        text_full = ocr_image(file_bytes)
 
+
+
+    # ---------- EXTRACT BILL INDENTS ----------
     bill_rows = []
 
     for line in text_full.splitlines():
