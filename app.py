@@ -72,7 +72,7 @@ def extract_text_from_pdf(pdf_bytes):
                 if page_text:
                     text += page_text + "\n"
     except Exception as e:
-        st.error(f"❌ Error reading PDF: {e}")
+        st.error(f"Error reading PDF: {e}")
     return text
 
 
@@ -194,7 +194,7 @@ if run:
                             if indent:
                                 bill_rows.append({"text": line, "indent_no": indent})
                 except Exception as e:
-                    st.error(f"❌ Error processing PDF '{uploaded_file.name}': {e}")
+                    st.error(f"Error processing PDF '{uploaded_file.name}': {e}")
             else:
                 # Process as image (JPG/PNG)
                 text = ocr_image(file_bytes)
@@ -206,12 +206,12 @@ if run:
 
         progress.progress((i + 1) / len(bill_files))
 
-
+    # Handle empty results
     if bill_rows:
         bill_df = pd.DataFrame(bill_rows).drop_duplicates(subset=["indent_no"])
     else:
         bill_df = pd.DataFrame(columns=["text", "indent_no"])
-        st.warning("⚠ No indent numbers extracted from uploaded files. Check if OCR is working correctly.")
+        st.warning("No indent numbers extracted from uploaded files. Check if the PDF has readable text.")
 
 
     # ---------- STEP 4: RECON ----------
@@ -225,12 +225,12 @@ if run:
         indicator=True
     )
 
-    merged["status"] = merged["_merge"].map({
+    # Convert _merge to string to avoid categorical issues
+    merged["status"] = merged["_merge"].astype(str).map({
         "both": "Matched",
-        "left_only": "Bill without Indent ❌",
-        "right_only": "Indent without Bill ⚠"
+        "left_only": "Bill without Indent",
+        "right_only": "Indent without Bill"
     })
-
 
     # ---------- Owner Exception ----------
     owner_vehicles = [
@@ -240,7 +240,8 @@ if run:
         "TN66AS6000"
     ]
 
-    merged.loc[merged["vehicle"].isin(owner_vehicles), "status"] = "Owner Exception 🟡"
+    if "vehicle" in merged.columns and len(merged) > 0:
+        merged.loc[merged["vehicle"].isin(owner_vehicles), "status"] = "Owner Exception"
 
 
     # ---------- STEP 5: EXPORT ----------
