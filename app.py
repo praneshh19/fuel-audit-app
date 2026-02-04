@@ -5,6 +5,7 @@ import base64
 import re
 import io
 from pdf2image import convert_from_bytes
+import pdfplumber
 
 
 # ============================================
@@ -59,6 +60,23 @@ def ocr_image(image_bytes):
 
 
 # ============================================
+# DIRECT PDF TEXT EXTRACTION (No API needed)
+# ============================================
+def extract_text_from_pdf(pdf_bytes):
+    """Extract text directly from OCR-readable PDFs using pdfplumber"""
+    text = ""
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    except Exception as e:
+        st.error(f"❌ Error reading PDF: {e}")
+    return text
+
+
+# ============================================
 # SUPPORT FUNCTIONS
 # ============================================
 def extract_indent(text):
@@ -70,21 +88,35 @@ def extract_indent(text):
 # STREAMLIT UI
 # ============================================
 st.set_page_config(page_title="Fuel Audit – Multi Image OCR", layout="wide")
-st.title("⛽ Fuel Audit & Fraud Detection — Google OCR (Multiple Images)")
+st.title("⛽ Fuel Audit & Fraud Detection")
 
-st.write("Upload Excel files and fuel bill **images** (JPG/PNG) or **scanned PDFs**.")
+st.write("Upload Excel files and fuel bill **images** (JPG/PNG) or **PDFs**.")
 
+
+# ========== EXTRACTION METHOD ==========
+extraction_method = st.radio(
+    "Select Text Extraction Method:",
+    ["Direct PDF Text (for OCR-readable PDFs - No API needed)", "Google Vision OCR (for scanned images/PDFs)"],
+    index=0
+)
 
 # ========== INPUT FILE UPLOADS ==========
 indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
 gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
 vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
 
-bill_files = st.file_uploader(
-    "Upload Fuel Bill Images or Scanned PDFs",
-    type=["jpg", "jpeg", "png", "pdf"],
-    accept_multiple_files=True
-)
+if "Direct PDF" in extraction_method:
+    bill_files = st.file_uploader(
+        "Upload OCR-readable PDF files",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
+else:
+    bill_files = st.file_uploader(
+        "Upload Fuel Bill Images or Scanned PDFs",
+        type=["jpg", "jpeg", "png", "pdf"],
+        accept_multiple_files=True
+    )
 
 run = st.button("🚀 Run Audit")
 
@@ -126,8 +158,8 @@ if run:
     gps_summary = gps_df.groupby("vehicle", as_index=False)["km"].sum()
 
 
-    # ---------- STEP 3: OCR MULTIPLE IMAGES/PDFs ----------
-    st.subheader("Step 3 — Running OCR on fuel bill images/PDFs")
+    # ---------- STEP 3: TEXT EXTRACTION ----------
+    st.subheader("Step 3 — Extracting text from fuel bills")
 
     bill_rows = []
     progress = st.progress(0)
@@ -136,33 +168,41 @@ if run:
         file_bytes = uploaded_file.read()
         file_name = uploaded_file.name.lower()
 
-        # Check if it's a PDF file
-        if file_name.endswith(".pdf"):
-            # Convert PDF pages to images
-            try:
-                pages = convert_from_bytes(file_bytes, dpi=300)
-                for page in pages:
-                    # Convert PIL Image to bytes
-                    img_buffer = io.BytesIO()
-                    page.save(img_buffer, format="PNG")
-                    img_bytes = img_buffer.getvalue()
-
-                    text = ocr_image(img_bytes)
-
-                    for line in text.splitlines():
-                        indent = extract_indent(line)
-                        if indent:
-                            bill_rows.append({"text": line, "indent_no": indent})
-            except Exception as e:
-                st.error(f"❌ Error processing PDF '{uploaded_file.name}': {e}")
-        else:
-            # Process as image (JPG/PNG)
-            text = ocr_image(file_bytes)
-
+        # Direct PDF Text Extraction (no API needed)
+        if "Direct PDF" in extraction_method:
+            text = extract_text_from_pdf(file_bytes)
             for line in text.splitlines():
                 indent = extract_indent(line)
                 if indent:
                     bill_rows.append({"text": line, "indent_no": indent})
+
+        # Google Vision OCR
+        else:
+            if file_name.endswith(".pdf"):
+                # Convert PDF pages to images for OCR
+                try:
+                    pages = convert_from_bytes(file_bytes, dpi=300)
+                    for page in pages:
+                        img_buffer = io.BytesIO()
+                        page.save(img_buffer, format="PNG")
+                        img_bytes = img_buffer.getvalue()
+
+                        text = ocr_image(img_bytes)
+
+                        for line in text.splitlines():
+                            indent = extract_indent(line)
+                            if indent:
+                                bill_rows.append({"text": line, "indent_no": indent})
+                except Exception as e:
+                    st.error(f"❌ Error processing PDF '{uploaded_file.name}': {e}")
+            else:
+                # Process as image (JPG/PNG)
+                text = ocr_image(file_bytes)
+
+                for line in text.splitlines():
+                    indent = extract_indent(line)
+                    if indent:
+                        bill_rows.append({"text": line, "indent_no": indent})
 
         progress.progress((i + 1) / len(bill_files))
 
