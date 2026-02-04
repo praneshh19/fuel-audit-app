@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 import base64
 import re
+import io
+from pdf2image import convert_from_bytes
 
 
 # ============================================
@@ -70,7 +72,7 @@ def extract_indent(text):
 st.set_page_config(page_title="Fuel Audit – Multi Image OCR", layout="wide")
 st.title("⛽ Fuel Audit & Fraud Detection — Google OCR (Multiple Images)")
 
-st.write("Upload Excel files and fuel bill **images** (JPG/PNG). PDF not required.")
+st.write("Upload Excel files and fuel bill **images** (JPG/PNG) or **scanned PDFs**.")
 
 
 # ========== INPUT FILE UPLOADS ==========
@@ -78,9 +80,9 @@ indent_file = st.file_uploader("Indent Register (Excel)", type=["xlsx"])
 gps_file = st.file_uploader("GPS Distance Report (Excel)", type=["xlsx"])
 vehicle_master_file = st.file_uploader("Vehicle Master (Excel/CSV)", type=["xlsx", "csv"])
 
-bill_images = st.file_uploader(
-    "Upload Multiple Fuel Bill IMAGES",
-    type=["jpg", "jpeg", "png"],
+bill_files = st.file_uploader(
+    "Upload Fuel Bill Images or Scanned PDFs",
+    type=["jpg", "jpeg", "png", "pdf"],
     accept_multiple_files=True
 )
 
@@ -92,7 +94,7 @@ run = st.button("🚀 Run Audit")
 # ============================================
 if run:
 
-    if not all([indent_file, gps_file, vehicle_master_file, bill_images]):
+    if not all([indent_file, gps_file, vehicle_master_file, bill_files]):
         st.error("⚠ Please upload all required files.")
         st.stop()
 
@@ -124,23 +126,45 @@ if run:
     gps_summary = gps_df.groupby("vehicle", as_index=False)["km"].sum()
 
 
-    # ---------- STEP 3: OCR MULTIPLE IMAGES ----------
-    st.subheader("Step 3 — Running OCR on fuel bill images")
+    # ---------- STEP 3: OCR MULTIPLE IMAGES/PDFs ----------
+    st.subheader("Step 3 — Running OCR on fuel bill images/PDFs")
 
     bill_rows = []
     progress = st.progress(0)
 
-    for i, img in enumerate(bill_images):
-        img_bytes = img.read()
+    for i, uploaded_file in enumerate(bill_files):
+        file_bytes = uploaded_file.read()
+        file_name = uploaded_file.name.lower()
 
-        text = ocr_image(img_bytes)
+        # Check if it's a PDF file
+        if file_name.endswith(".pdf"):
+            # Convert PDF pages to images
+            try:
+                pages = convert_from_bytes(file_bytes, dpi=300)
+                for page in pages:
+                    # Convert PIL Image to bytes
+                    img_buffer = io.BytesIO()
+                    page.save(img_buffer, format="PNG")
+                    img_bytes = img_buffer.getvalue()
 
-        for line in text.splitlines():
-            indent = extract_indent(line)
-            if indent:
-                bill_rows.append({"text": line, "indent_no": indent})
+                    text = ocr_image(img_bytes)
 
-        progress.progress((i + 1) / len(bill_images))
+                    for line in text.splitlines():
+                        indent = extract_indent(line)
+                        if indent:
+                            bill_rows.append({"text": line, "indent_no": indent})
+            except Exception as e:
+                st.error(f"❌ Error processing PDF '{uploaded_file.name}': {e}")
+        else:
+            # Process as image (JPG/PNG)
+            text = ocr_image(file_bytes)
+
+            for line in text.splitlines():
+                indent = extract_indent(line)
+                if indent:
+                    bill_rows.append({"text": line, "indent_no": indent})
+
+        progress.progress((i + 1) / len(bill_files))
 
 
     bill_df = pd.DataFrame(bill_rows).drop_duplicates(subset=["indent_no"])
