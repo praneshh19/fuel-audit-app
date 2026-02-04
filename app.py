@@ -167,7 +167,11 @@ if run:
         progress.progress((i + 1) / len(bill_files))
 
 
-    bill_df = pd.DataFrame(bill_rows).drop_duplicates(subset=["indent_no"])
+    if bill_rows:
+        bill_df = pd.DataFrame(bill_rows).drop_duplicates(subset=["indent_no"])
+    else:
+        bill_df = pd.DataFrame(columns=["text", "indent_no"])
+        st.warning("⚠ No indent numbers extracted from uploaded files. Check if OCR is working correctly.")
 
 
     # ---------- STEP 4: RECON ----------
