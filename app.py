@@ -11,7 +11,7 @@ import pdfplumber
 # ============================================
 # 🔑 ADD YOUR GOOGLE VISION API KEY HERE
 # ============================================
-VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"   # <-- only here
+VISION_API_KEY = "AIzaSyBFp3PKErq-nTlPkbX0Yoprf9h1rTugISs"
 
 
 # ============================================
